@@ -133,6 +133,21 @@
             <button id="reverse">Reverse</button>
         </div>
 
+        <div class="buttons" style="margin-top: 10px;">
+            <button id="stepBackward">Step Back</button>
+            <button id="stepForward">Step Forward</button>
+        </div>
+
+        <div class="control-group" style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #0088ff;">
+            <label>Simulation Speed:</label>
+            <div class="buttons">
+                <button class="speed-btn active" data-speed="1.0">1.00x</button>
+                <button class="speed-btn" data-speed="0.75">0.75x</button>
+                <button class="speed-btn" data-speed="0.5">0.50x</button>
+                <button class="speed-btn" data-speed="0.25">0.25x</button>
+            </div>
+        </div>
+
         <div style="margin-top: 10px; font-size: 10px;">
             <label>
                 <input type="checkbox" id="showTrails" checked> Show Trails
@@ -183,17 +198,52 @@
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
 
+        // Load images
+        const jupiterImage = new Image();
+        const satelliteImage = new Image();
+        let imagesLoaded = 0;
+        const totalImages = 2;
+
+        function onImageLoad() {
+            imagesLoaded++;
+            if (imagesLoaded === totalImages) {
+                // All images loaded, can start simulation
+                initializeObjects();
+                updateValueDisplays();
+                requestAnimationFrame(animate);
+            }
+        }
+
+        jupiterImage.onload = onImageLoad;
+        satelliteImage.onload = onImageLoad;
+        jupiterImage.src = 'jupiter.png';
+        satelliteImage.src = 'satellite.png';
+
         // Simulation state
         let isPlaying = false;
         let timeDirection = 1;
+        let timeScale = 1.0; // Speed multiplier: 1.0 = normal, 0.75 = 75%, 0.5 = 50%, 0.25 = 25%
         let showTrails = true;
 
         // Physics constants
         const G = 50000; // Gravitational constant (scaled for visualization)
 
+        // Helper function to draw arrow heads
+        function drawArrowHead(ctx, fromX, fromY, toX, toY, headLength = 8) {
+            const angle = Math.atan2(toY - fromY, toX - fromX);
+            
+            // Draw the arrow head
+            ctx.beginPath();
+            ctx.moveTo(toX, toY);
+            ctx.lineTo(toX - headLength * Math.cos(angle - Math.PI / 6), toY - headLength * Math.sin(angle - Math.PI / 6));
+            ctx.moveTo(toX, toY);
+            ctx.lineTo(toX - headLength * Math.cos(angle + Math.PI / 6), toY - headLength * Math.sin(angle + Math.PI / 6));
+            ctx.stroke();
+        }
+
         // Objects
         class CelestialBody {
-            constructor(x, y, vx, vy, mass, radius, color) {
+            constructor(x, y, vx, vy, mass, radius, color, image = null) {
                 this.x = x;
                 this.y = y;
                 this.vx = vx;
@@ -201,6 +251,7 @@
                 this.mass = mass;
                 this.radius = radius;
                 this.color = color;
+                this.image = image;
                 this.trail = [];
                 this.ax = 0;
                 this.ay = 0;
@@ -242,40 +293,90 @@
                 }
 
                 // Draw body
-                ctx.fillStyle = this.color;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-                ctx.fill();
+                if (this.image && this.image.complete) {
+                    const imageSize = this.radius * 2;
+                    ctx.drawImage(this.image, this.x - this.radius, this.y - this.radius, imageSize, imageSize);
+                } else {
+                    // Fallback to circle if image not loaded
+                    ctx.fillStyle = this.color;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
 
                 // Draw velocity vector
                 const velocityScale = 0.5;
-                ctx.strokeStyle = '#44ff44';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(this.x, this.y);
-                ctx.lineTo(this.x + this.vx * velocityScale, this.y + this.vy * velocityScale);
-                ctx.stroke();
+                const velocityMagnitude = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (velocityMagnitude > 0) {
+                    // Normalize velocity vector and multiply by radius to start from edge
+                    const normalizedVx = this.vx / velocityMagnitude;
+                    const normalizedVy = this.vy / velocityMagnitude;
+                    const startX = this.x + normalizedVx * this.radius;
+                    const startY = this.y + normalizedVy * this.radius;
+                    const endX = startX + this.vx * velocityScale;
+                    const endY = startY + this.vy * velocityScale;
+                    
+                    ctx.strokeStyle = '#44ff44';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY);
+                    ctx.lineTo(endX, endY);
+                    ctx.stroke();
+                    
+                    // Draw arrow head
+                    drawArrowHead(ctx, startX, startY, endX, endY);
+                }
 
                 // Draw relative velocity vector (only for spaceship)
                 if (planet && this.color === '#ff4444') { // Only for spaceship (red)
                     const relativeVx = this.vx - planet.vx;
                     const relativeVy = this.vy - planet.vy;
-                    ctx.strokeStyle = '#aa44ff'; // Purple color
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    ctx.moveTo(this.x, this.y);
-                    ctx.lineTo(this.x + relativeVx * velocityScale, this.y + relativeVy * velocityScale);
-                    ctx.stroke();
+                    const relativeMagnitude = Math.sqrt(relativeVx * relativeVx + relativeVy * relativeVy);
+                    
+                    if (relativeMagnitude > 0) {
+                        // Start from edge in direction of relative velocity
+                        const normalizedRelVx = relativeVx / relativeMagnitude;
+                        const normalizedRelVy = relativeVy / relativeMagnitude;
+                        const startX = this.x + normalizedRelVx * this.radius;
+                        const startY = this.y + normalizedRelVy * this.radius;
+                        const endX = startX + relativeVx * velocityScale;
+                        const endY = startY + relativeVy * velocityScale;
+                        
+                        ctx.strokeStyle = '#aa44ff'; // Purple color
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(startX, startY);
+                        ctx.lineTo(endX, endY);
+                        ctx.stroke();
+                        
+                        // Draw arrow head
+                        drawArrowHead(ctx, startX, startY, endX, endY);
+                    }
                 }
 
                 // Draw acceleration vector
                 const accelScale = 1;
-                ctx.strokeStyle = '#ffaa00';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(this.x, this.y);
-                ctx.lineTo(this.x + this.ax * accelScale, this.y + this.ay * accelScale);
-                ctx.stroke();
+                const accelMagnitude = Math.sqrt(this.ax * this.ax + this.ay * this.ay);
+                
+                if (accelMagnitude > 0) {
+                    // Start from edge in direction of acceleration
+                    const normalizedAx = this.ax / accelMagnitude;
+                    const normalizedAy = this.ay / accelMagnitude;
+                    const startX = this.x + normalizedAx * this.radius;
+                    const startY = this.y + normalizedAy * this.radius;
+                    const endX = startX + this.ax * accelScale;
+                    const endY = startY + this.ay * accelScale;
+                    
+                    ctx.strokeStyle = '#ffaa00';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY);
+                    ctx.lineTo(endX, endY);
+                    ctx.stroke();
+                    
+                    // Draw arrow head
+                    drawArrowHead(ctx, startX, startY, endX, endY);
+                }
             }
         }
 
@@ -299,8 +400,9 @@
                 vx,                  // vx - horizontal component based on angle
                 vy,                  // vy - vertical component based on angle
                 1,                   // mass (small compared to planet)
-                5,                   // radius
-                '#ff4444'            // red color
+                15,                  // radius (increased for better visibility)
+                '#ff4444',           // red color
+                satelliteImage       // satellite image
             );
 
             planet = new CelestialBody(
@@ -309,8 +411,9 @@
                 planetSpeed,         // vx - moving right
                 0,                   // vy - no vertical movement
                 planetMass,          // mass
-                20,                  // radius
-                '#4488ff'            // blue color
+                40,                  // radius (increased for better visibility)
+                '#4488ff',           // blue color
+                jupiterImage         // Jupiter image
             );
         }
 
@@ -380,7 +483,7 @@
             lastTime = currentTime;
 
             if (isPlaying && dt < 0.1) { // Cap dt to prevent large jumps
-                updatePhysics(dt);
+                updatePhysics(dt * timeScale);
             }
 
             render();
@@ -413,6 +516,37 @@
                 spaceship.clearTrail();
                 planet.clearTrail();
             }
+        });
+
+        // Speed control buttons
+        document.querySelectorAll('.speed-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                // Remove active class from all speed buttons
+                document.querySelectorAll('.speed-btn').forEach(btn => btn.classList.remove('active'));
+                // Add active class to clicked button
+                this.classList.add('active');
+                // Update time scale
+                timeScale = parseFloat(this.dataset.speed);
+            });
+        });
+
+        // Single step function
+        function performSingleStep(direction = 1) {
+            const fixedTimeStep = 1/60; // Fixed 60 FPS time step
+            const originalTimeDirection = timeDirection;
+            timeDirection = direction;
+            updatePhysics(fixedTimeStep * timeScale);
+            timeDirection = originalTimeDirection;
+            render();
+        }
+
+        // Step buttons
+        document.getElementById('stepForward').addEventListener('click', function() {
+            performSingleStep(1);
+        });
+
+        document.getElementById('stepBackward').addEventListener('click', function() {
+            performSingleStep(-1);
         });
 
         // Update spaceship parameters when sliders change
@@ -464,10 +598,7 @@
         document.getElementById('planetSpeed').addEventListener('input', onPlanetParameterChange);
         document.getElementById('planetMass').addEventListener('input', onPlanetParameterChange);
 
-        // Initialize
-        initializeObjects();
-        updateValueDisplays();
-        requestAnimationFrame(animate);
+        // Note: Initialization moved to image onload callbacks
     </script>
 </body>
 </html>
