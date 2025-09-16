@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gravitational Assist Simulator</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #001122;
+            color: white;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        canvas {
+            background: #000;
+            display: block;
+        }
+
+        .control-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 50, 100, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #0088ff;
+            min-width: 200px;
+        }
+
+        .control-group {
+            margin-bottom: 10px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            margin-bottom: 5px;
+        }
+
+        .value-display {
+            font-size: 11px;
+            color: #88ccff;
+        }
+
+        .buttons {
+            margin-top: 15px;
+        }
+
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            margin: 2px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+        }
+
+        button:hover {
+            background: #0088ff;
+        }
+
+        button.active {
+            background: #00aa00;
+        }
+
+        .legend {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 50, 100, 0.8);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #0088ff;
+            font-size: 11px;
+        }
+
+        .legend-item {
+            margin: 3px 0;
+        }
+
+        .color-box {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 5px;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div class="control-panel">
+        <h3 style="margin-top: 0; font-size: 14px;">Gravitational Assist Simulator</h3>
+
+        <div class="control-group">
+            <label for="spaceshipSpeed">Spaceship Speed:</label>
+            <input type="range" id="spaceshipSpeed" min="50" max="300" value="100">
+            <div class="value-display" id="spaceshipSpeedValue">100</div>
+        </div>
+
+        <div class="control-group">
+            <label for="planetSpeed">Planet Speed:</label>
+            <input type="range" id="planetSpeed" min="20" max="100" value="75">
+            <div class="value-display" id="planetSpeedValue">75</div>
+        </div>
+
+        <div class="control-group">
+            <label for="planetMass">Planet Mass:</label>
+            <input type="range" id="planetMass" min="50" max="150" value="100">
+            <div class="value-display" id="planetMassValue">100</div>
+        </div>
+
+        <div class="control-group">
+            <label for="spaceshipAngle">Spaceship Angle:</label>
+            <input type="range" id="spaceshipAngle" min="-45" max="45" value="-45">
+            <div class="value-display" id="spaceshipAngleValue">-45°</div>
+        </div>
+
+        <div class="buttons">
+            <button id="playPause">Play</button>
+            <button id="reset">Reset</button>
+            <button id="reverse">Reverse</button>
+        </div>
+
+        <div style="margin-top: 10px; font-size: 10px;">
+            <label>
+                <input type="checkbox" id="showTrails" checked> Show Trails
+            </label>
+        </div>
+
+        <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #0088ff;">
+            <div style="font-size: 11px; margin-bottom: 5px;">Current Spaceship Speed:</div>
+            <div id="currentSpaceshipSpeed" style="font-size: 14px; color: #44ff44; font-weight: bold;">0</div>
+            <div style="font-size: 11px; margin-bottom: 3px; margin-top: 8px;">Relative to Planet:</div>
+            <div id="relativeSpaceshipSpeed" style="font-size: 14px; color: #aa44ff; font-weight: bold;">0</div>
+        </div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item">
+            <span class="color-box" style="background: #ff4444;"></span>Spaceship
+        </div>
+        <div class="legend-item">
+            <span class="color-box" style="background: #4488ff;"></span>Planet
+        </div>
+        <div class="legend-item">
+            <span class="color-box" style="background: #44ff44;"></span>Velocity Vector
+        </div>
+        <div class="legend-item">
+            <span class="color-box" style="background: #aa44ff;"></span>Relative Velocity
+        </div>
+        <div class="legend-item">
+            <span class="color-box" style="background: #ffaa00;"></span>Acceleration Vector
+        </div>
+        <div class="legend-item">
+            <span class="color-box" style="background: rgba(255,255,255,0.3);"></span>Trail
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Resize canvas to fill window
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Simulation state
+        let isPlaying = false;
+        let timeDirection = 1;
+        let showTrails = true;
+
+        // Physics constants
+        const G = 50000; // Gravitational constant (scaled for visualization)
+
+        // Objects
+        class CelestialBody {
+            constructor(x, y, vx, vy, mass, radius, color) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.mass = mass;
+                this.radius = radius;
+                this.color = color;
+                this.trail = [];
+                this.ax = 0;
+                this.ay = 0;
+            }
+
+            update(dt) {
+                // Update position
+                this.x += this.vx * dt * timeDirection;
+                this.y += this.vy * dt * timeDirection;
+
+                // Update velocity
+                this.vx += this.ax * dt * timeDirection;
+                this.vy += this.ay * dt * timeDirection;
+
+                // Add to trail
+                if (showTrails && Math.random() < 0.3) {
+                    this.trail.push({x: this.x, y: this.y});
+                    if (this.trail.length > 200) {
+                        this.trail.shift();
+                    }
+                }
+            }
+
+            clearTrail() {
+                this.trail = [];
+            }
+
+            draw(planet = null) {
+                // Draw trail
+                if (showTrails && this.trail.length > 1) {
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(this.trail[0].x, this.trail[0].y);
+                    for (let i = 1; i < this.trail.length; i++) {
+                        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                    }
+                    ctx.stroke();
+                }
+
+                // Draw body
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Draw velocity vector
+                const velocityScale = 0.5;
+                ctx.strokeStyle = '#44ff44';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(this.x + this.vx * velocityScale, this.y + this.vy * velocityScale);
+                ctx.stroke();
+
+                // Draw relative velocity vector (only for spaceship)
+                if (planet && this.color === '#ff4444') { // Only for spaceship (red)
+                    const relativeVx = this.vx - planet.vx;
+                    const relativeVy = this.vy - planet.vy;
+                    ctx.strokeStyle = '#aa44ff'; // Purple color
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x + relativeVx * velocityScale, this.y + relativeVy * velocityScale);
+                    ctx.stroke();
+                }
+
+                // Draw acceleration vector
+                const accelScale = 1;
+                ctx.strokeStyle = '#ffaa00';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(this.x + this.ax * accelScale, this.y + this.ay * accelScale);
+                ctx.stroke();
+            }
+        }
+
+        // Initialize objects
+        let spaceship, planet;
+
+        function initializeObjects() {
+            const spaceshipSpeed = parseInt(document.getElementById('spaceshipSpeed').value);
+            const planetSpeed = parseInt(document.getElementById('planetSpeed').value);
+            const planetMass = parseInt(document.getElementById('planetMass').value);
+            const spaceshipAngle = parseInt(document.getElementById('spaceshipAngle').value);
+
+            // Convert angle to radians and calculate velocity components
+            const angleRad = (spaceshipAngle * Math.PI) / 180;
+            const vx = spaceshipSpeed * Math.sin(angleRad);
+            const vy = -spaceshipSpeed * Math.cos(angleRad); // Negative because y increases downward
+
+            spaceship = new CelestialBody(
+                canvas.width / 2,    // x - center bottom
+                canvas.height - 50,  // y - near bottom
+                vx,                  // vx - horizontal component based on angle
+                vy,                  // vy - vertical component based on angle
+                1,                   // mass (small compared to planet)
+                5,                   // radius
+                '#ff4444'            // red color
+            );
+
+            planet = new CelestialBody(
+                canvas.width / 4,    // x - 1/4 from left side
+                canvas.height / 2,   // y - center vertically
+                planetSpeed,         // vx - moving right
+                0,                   // vy - no vertical movement
+                planetMass,          // mass
+                20,                  // radius
+                '#4488ff'            // blue color
+            );
+        }
+
+        // Physics calculations
+        function calculateGravitationalForce(body1, body2) {
+            const dx = body2.x - body1.x;
+            const dy = body2.y - body1.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < body1.radius + body2.radius) {
+                return {fx: 0, fy: 0}; // Avoid collision singularity
+            }
+
+            const force = G * body1.mass * body2.mass / (distance * distance);
+            const fx = force * dx / distance;
+            const fy = force * dy / distance;
+
+            return {fx, fy};
+        }
+
+        function updatePhysics(dt) {
+            // Calculate gravitational force between spaceship and planet
+            const force = calculateGravitationalForce(spaceship, planet);
+
+            // Apply force to spaceship (planet is not affected as per requirements)
+            spaceship.ax = force.fx / spaceship.mass;
+            spaceship.ay = force.fy / spaceship.mass;
+
+            // Planet has no acceleration (as per requirements)
+            planet.ax = 0;
+            planet.ay = 0;
+
+            // Update positions and velocities
+            spaceship.update(dt);
+            planet.update(dt);
+        }
+
+        // Rendering
+        function render() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            planet.draw();
+            spaceship.draw(planet);
+
+            // Update current spaceship speed display
+            const currentSpeed = Math.sqrt(spaceship.vx * spaceship.vx + spaceship.vy * spaceship.vy);
+            document.getElementById('currentSpaceshipSpeed').textContent = Math.round(currentSpeed);
+
+            // Update relative spaceship speed display
+            const relativeVx = spaceship.vx - planet.vx;
+            const relativeVy = spaceship.vy - planet.vy;
+            const relativeSpeed = Math.sqrt(relativeVx * relativeVx + relativeVy * relativeVy);
+            document.getElementById('relativeSpaceshipSpeed').textContent = Math.round(relativeSpeed);
+        }
+
+        // Animation loop
+        let lastTime = 0;
+        function animate(currentTime) {
+            const dt = (currentTime - lastTime) / 1000; // Convert to seconds
+            lastTime = currentTime;
+
+            if (isPlaying && dt < 0.1) { // Cap dt to prevent large jumps
+                updatePhysics(dt);
+            }
+
+            render();
+            requestAnimationFrame(animate);
+        }
+
+        // Controls
+        document.getElementById('playPause').addEventListener('click', function() {
+            isPlaying = !isPlaying;
+            this.textContent = isPlaying ? 'Pause' : 'Play';
+            this.classList.toggle('active', isPlaying);
+        });
+
+        document.getElementById('reset').addEventListener('click', function() {
+            isPlaying = false;
+            document.getElementById('playPause').textContent = 'Play';
+            document.getElementById('playPause').classList.remove('active');
+            timeDirection = 1;
+            initializeObjects();
+        });
+
+        document.getElementById('reverse').addEventListener('click', function() {
+            timeDirection *= -1;
+            this.textContent = timeDirection > 0 ? 'Reverse' : 'Forward';
+        });
+
+        document.getElementById('showTrails').addEventListener('change', function() {
+            showTrails = this.checked;
+            if (!showTrails) {
+                spaceship.clearTrail();
+                planet.clearTrail();
+            }
+        });
+
+        // Update spaceship parameters when sliders change
+        function updateSpaceshipParameters() {
+            if (spaceship && planet) {
+                const spaceshipSpeed = parseInt(document.getElementById('spaceshipSpeed').value);
+                const spaceshipAngle = parseInt(document.getElementById('spaceshipAngle').value);
+
+                // Convert angle to radians and calculate velocity components
+                const angleRad = (spaceshipAngle * Math.PI) / 180;
+                spaceship.vx = spaceshipSpeed * Math.sin(angleRad);
+                spaceship.vy = -spaceshipSpeed * Math.cos(angleRad);
+            }
+        }
+
+        // Update planet parameters when sliders change
+        function updatePlanetParameters() {
+            if (planet) {
+                const planetSpeed = parseInt(document.getElementById('planetSpeed').value);
+                planet.vx = planetSpeed;
+
+                const planetMass = parseInt(document.getElementById('planetMass').value);
+                planet.mass = planetMass;
+            }
+        }
+
+        // Update value displays
+        function updateValueDisplays() {
+            document.getElementById('spaceshipSpeedValue').textContent = document.getElementById('spaceshipSpeed').value;
+            document.getElementById('planetSpeedValue').textContent = document.getElementById('planetSpeed').value;
+            document.getElementById('planetMassValue').textContent = document.getElementById('planetMass').value;
+            document.getElementById('spaceshipAngleValue').textContent = document.getElementById('spaceshipAngle').value + '°';
+        }
+
+        // Combined function for spaceship parameter changes
+        function onSpaceshipParameterChange() {
+            updateValueDisplays();
+            updateSpaceshipParameters();
+        }
+
+        // Combined function for planet parameter changes
+        function onPlanetParameterChange() {
+            updateValueDisplays();
+            updatePlanetParameters();
+        }
+
+        document.getElementById('spaceshipSpeed').addEventListener('input', onSpaceshipParameterChange);
+        document.getElementById('spaceshipAngle').addEventListener('input', onSpaceshipParameterChange);
+        document.getElementById('planetSpeed').addEventListener('input', onPlanetParameterChange);
+        document.getElementById('planetMass').addEventListener('input', onPlanetParameterChange);
+
+        // Initialize
+        initializeObjects();
+        updateValueDisplays();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
