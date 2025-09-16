@@ -140,10 +140,12 @@
         </div>
 
         <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #0088ff;">
-            <div style="font-size: 11px; margin-bottom: 5px;">Current Spaceship Speed:</div>
+            <div style="font-size: 11px; margin-bottom: 5px;">Sun Frame Spacecraft Velocity:</div>
             <div id="currentSpaceshipSpeed" style="font-size: 14px; color: #44ff44; font-weight: bold;">0</div>
-            <div style="font-size: 11px; margin-bottom: 3px; margin-top: 8px;">Relative to Planet:</div>
+            <div style="font-size: 11px; margin-bottom: 3px; margin-top: 8px;">Velocity Relative to Planet:</div>
             <div id="relativeSpaceshipSpeed" style="font-size: 14px; color: #aa44ff; font-weight: bold;">0</div>
+            <div style="font-size: 11px; margin-bottom: 3px; margin-top: 8px;">Distance Between Spacecraft and Planet:</div>
+            <div id="spaceshipPlanetDistance" style="font-size: 14px; color: #ffaa44; font-weight: bold;">0</div>
         </div>
     </div>
 
@@ -205,13 +207,13 @@
             }
 
             update(dt) {
-                // Update position
-                this.x += this.vx * dt * timeDirection;
-                this.y += this.vy * dt * timeDirection;
-
-                // Update velocity
+                // Update velocity first (symplectic Euler for better energy conservation)
                 this.vx += this.ax * dt * timeDirection;
                 this.vy += this.ay * dt * timeDirection;
+
+                // Then update position with new velocity
+                this.x += this.vx * dt * timeDirection;
+                this.y += this.vy * dt * timeDirection;
 
                 // Add to trail
                 if (showTrails && Math.random() < 0.3) {
@@ -363,6 +365,12 @@
             const relativeVy = spaceship.vy - planet.vy;
             const relativeSpeed = Math.sqrt(relativeVx * relativeVx + relativeVy * relativeVy);
             document.getElementById('relativeSpaceshipSpeed').textContent = Math.round(relativeSpeed);
+
+            // Update distance between spacecraft and planet display
+            const dx = spaceship.x - planet.x;
+            const dy = spaceship.y - planet.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            document.getElementById('spaceshipPlanetDistance').textContent = Math.round(distance);
         }
 
         // Animation loop
