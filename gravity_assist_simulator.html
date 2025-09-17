@@ -142,9 +142,9 @@
             <label>Simulation Speed:</label>
             <div class="buttons">
                 <button class="speed-btn active" data-speed="1.0">1.00x</button>
-                <button class="speed-btn" data-speed="0.75">0.75x</button>
                 <button class="speed-btn" data-speed="0.5">0.50x</button>
                 <button class="speed-btn" data-speed="0.25">0.25x</button>
+                <button class="speed-btn" data-speed="0.1">0.10x</button>
             </div>
         </div>
 
@@ -201,29 +201,74 @@
         // Load images
         const jupiterImage = new Image();
         const satelliteImage = new Image();
+        const explosionImage = new Image();
         let imagesLoaded = 0;
-        const totalImages = 2;
+        const requiredImages = 2; // Only Jupiter and satellite are required
+        let explosionImageLoaded = false;
 
-        function onImageLoad() {
+        // Collision and explosion state
+        let collisionOccurred = false;
+        let explosionStartTime = 0;
+        let explosionDuration = 1000; // 1 second explosion
+        let explosionAlpha = 0;
+        let explosionX = 0;
+        let explosionY = 0;
+
+        function onRequiredImageLoad() {
             imagesLoaded++;
-            if (imagesLoaded === totalImages) {
-                // All images loaded, can start simulation
+            console.log(`Image loaded: ${imagesLoaded}/${requiredImages}`);
+            if (imagesLoaded === requiredImages) {
+                console.log('All required images loaded, starting simulation');
+                // Required images loaded, can start simulation
                 initializeObjects();
                 updateValueDisplays();
                 requestAnimationFrame(animate);
             }
         }
 
-        jupiterImage.onload = onImageLoad;
-        satelliteImage.onload = onImageLoad;
-        jupiterImage.src = 'jupiter.png';
-        satelliteImage.src = 'satellite.png';
+        function onImageError(imageName) {
+            console.error(`Failed to load image: ${imageName}`);
+            // Still count as loaded to prevent blocking
+            onRequiredImageLoad();
+        }
+
+        function onExplosionImageLoad() {
+            explosionImageLoaded = true;
+        }
+
+        function onExplosionImageError() {
+            console.warn('Explosion image failed to load - explosions will not be visible');
+            explosionImageLoaded = false;
+        }
+
+        jupiterImage.onload = onRequiredImageLoad;
+        jupiterImage.onerror = () => onImageError('jupiter.png');
+        satelliteImage.onload = onRequiredImageLoad;
+        satelliteImage.onerror = () => onImageError('satellite.png');
+        explosionImage.onload = onExplosionImageLoad;
+        explosionImage.onerror = onExplosionImageError;
+        
+        console.log('Starting to load images...');
+        jupiterImage.src = 'images/jupiter.png';
+        satelliteImage.src = 'images/satellite.png';
+        explosionImage.src = 'images/explosion.png';
+
+        // Fallback: if images don't load within 3 seconds, start anyway
+        setTimeout(() => {
+            if (imagesLoaded < requiredImages) {
+                console.warn('Images taking too long to load, starting simulation anyway');
+                initializeObjects();
+                updateValueDisplays();
+                requestAnimationFrame(animate);
+            }
+        }, 3000);
 
         // Simulation state
         let isPlaying = false;
         let timeDirection = 1;
-        let timeScale = 1.0; // Speed multiplier: 1.0 = normal, 0.75 = 75%, 0.5 = 50%, 0.25 = 25%
+        let timeScale = 1.0; // Speed multiplier: 1.0 = normal, 0.5 = 50%, 0.25 = 25%, 0.1 = 10%
         let showTrails = true;
+        let spacecraftActive = true; // Track if spacecraft is still active (not exploded)
 
         // Physics constants
         const G = 50000; // Gravitational constant (scaled for visualization)
@@ -280,6 +325,12 @@
             }
 
             draw(planet = null) {
+                // Only draw if spacecraft is active (for spacecraft) or always draw (for planet)
+                const isSpacecraft = this.color === '#ff4444';
+                if (isSpacecraft && !spacecraftActive) {
+                    return; // Don't draw exploded spacecraft
+                }
+
                 // Draw trail
                 if (showTrails && this.trail.length > 1) {
                     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
@@ -304,31 +355,33 @@
                     ctx.fill();
                 }
 
-                // Draw velocity vector
+                // Draw velocity vector (only if spacecraft is active)
                 const velocityScale = 0.5;
-                const velocityMagnitude = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-                if (velocityMagnitude > 0) {
-                    // Normalize velocity vector and multiply by radius to start from edge
-                    const normalizedVx = this.vx / velocityMagnitude;
-                    const normalizedVy = this.vy / velocityMagnitude;
-                    const startX = this.x + normalizedVx * this.radius;
-                    const startY = this.y + normalizedVy * this.radius;
-                    const endX = startX + this.vx * velocityScale;
-                    const endY = startY + this.vy * velocityScale;
-                    
-                    ctx.strokeStyle = '#44ff44';
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    ctx.moveTo(startX, startY);
-                    ctx.lineTo(endX, endY);
-                    ctx.stroke();
-                    
-                    // Draw arrow head
-                    drawArrowHead(ctx, startX, startY, endX, endY);
+                if (!isSpacecraft || spacecraftActive) {
+                    const velocityMagnitude = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                    if (velocityMagnitude > 0) {
+                        // Normalize velocity vector and multiply by radius to start from edge
+                        const normalizedVx = this.vx / velocityMagnitude;
+                        const normalizedVy = this.vy / velocityMagnitude;
+                        const startX = this.x + normalizedVx * this.radius;
+                        const startY = this.y + normalizedVy * this.radius;
+                        const endX = startX + this.vx * velocityScale;
+                        const endY = startY + this.vy * velocityScale;
+                        
+                        ctx.strokeStyle = '#44ff44';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(startX, startY);
+                        ctx.lineTo(endX, endY);
+                        ctx.stroke();
+                        
+                        // Draw arrow head
+                        drawArrowHead(ctx, startX, startY, endX, endY);
+                    }
                 }
 
-                // Draw relative velocity vector (only for spaceship)
-                if (planet && this.color === '#ff4444') { // Only for spaceship (red)
+                // Draw relative velocity vector (only for active spaceship)
+                if (planet && this.color === '#ff4444' && spacecraftActive) { // Only for spaceship (red)
                     const relativeVx = this.vx - planet.vx;
                     const relativeVy = this.vy - planet.vy;
                     const relativeMagnitude = Math.sqrt(relativeVx * relativeVx + relativeVy * relativeVy);
@@ -354,28 +407,30 @@
                     }
                 }
 
-                // Draw acceleration vector
-                const accelScale = 1;
-                const accelMagnitude = Math.sqrt(this.ax * this.ax + this.ay * this.ay);
-                
-                if (accelMagnitude > 0) {
-                    // Start from edge in direction of acceleration
-                    const normalizedAx = this.ax / accelMagnitude;
-                    const normalizedAy = this.ay / accelMagnitude;
-                    const startX = this.x + normalizedAx * this.radius;
-                    const startY = this.y + normalizedAy * this.radius;
-                    const endX = startX + this.ax * accelScale;
-                    const endY = startY + this.ay * accelScale;
+                // Draw acceleration vector (only if spacecraft is active)
+                if (!isSpacecraft || spacecraftActive) {
+                    const accelScale = 1;
+                    const accelMagnitude = Math.sqrt(this.ax * this.ax + this.ay * this.ay);
                     
-                    ctx.strokeStyle = '#ffaa00';
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    ctx.moveTo(startX, startY);
-                    ctx.lineTo(endX, endY);
-                    ctx.stroke();
-                    
-                    // Draw arrow head
-                    drawArrowHead(ctx, startX, startY, endX, endY);
+                    if (accelMagnitude > 0) {
+                        // Start from edge in direction of acceleration
+                        const normalizedAx = this.ax / accelMagnitude;
+                        const normalizedAy = this.ay / accelMagnitude;
+                        const startX = this.x + normalizedAx * this.radius;
+                        const startY = this.y + normalizedAy * this.radius;
+                        const endX = startX + this.ax * accelScale;
+                        const endY = startY + this.ay * accelScale;
+                        
+                        ctx.strokeStyle = '#ffaa00';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(startX, startY);
+                        ctx.lineTo(endX, endY);
+                        ctx.stroke();
+                        
+                        // Draw arrow head
+                        drawArrowHead(ctx, startX, startY, endX, endY);
+                    }
                 }
             }
         }
@@ -384,6 +439,13 @@
         let spaceship, planet;
 
         function initializeObjects() {
+            console.log('Initializing objects...');
+            
+            // Reset all state
+            spacecraftActive = true;
+            collisionOccurred = false;
+            explosionAlpha = 0;
+            
             const spaceshipSpeed = parseInt(document.getElementById('spaceshipSpeed').value);
             const planetSpeed = parseInt(document.getElementById('planetSpeed').value);
             const planetMass = parseInt(document.getElementById('planetMass').value);
@@ -415,6 +477,8 @@
                 '#4488ff',           // blue color
                 jupiterImage         // Jupiter image
             );
+            
+            console.log('Objects initialized:', {spacecraftActive, spaceship: !!spaceship, planet: !!planet});
         }
 
         // Physics calculations
@@ -434,46 +498,142 @@
             return {fx, fy};
         }
 
+        // Collision detection
+        function checkCollision() {
+            if (!spacecraftActive || collisionOccurred) return false;
+            
+            const dx = spaceship.x - planet.x;
+            const dy = spaceship.y - planet.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Check if spacecraft overlaps with planet
+            return distance < (spaceship.radius + planet.radius - 5); // Small buffer for better collision feel
+        }
+
+        function triggerExplosion() {
+            if (collisionOccurred) return;
+            
+            collisionOccurred = true;
+            explosionStartTime = performance.now();
+            explosionX = spaceship.x;
+            explosionY = spaceship.y;
+            
+            // Delay spacecraft disappearance slightly for better visual effect
+            setTimeout(() => {
+                spacecraftActive = false;
+            }, 50); // 50ms delay
+        }
+
         function updatePhysics(dt) {
-            // Calculate gravitational force between spaceship and planet
-            const force = calculateGravitationalForce(spaceship, planet);
+            // Debug: log physics update
+            if (Math.random() < 0.01) { // Only log occasionally to avoid spam
+                console.log('updatePhysics called:', {dt, spacecraftActive, collisionOccurred});
+            }
+            
+            // Check for collision before physics update
+            if (checkCollision()) {
+                triggerExplosion();
+                return;
+            }
 
-            // Apply force to spaceship (planet is not affected as per requirements)
-            spaceship.ax = force.fx / spaceship.mass;
-            spaceship.ay = force.fy / spaceship.mass;
+            // Only update spacecraft physics if it's still active
+            if (spacecraftActive) {
+                // Calculate gravitational force between spaceship and planet
+                const force = calculateGravitationalForce(spaceship, planet);
 
-            // Planet has no acceleration (as per requirements)
+                // Apply force to spaceship (planet is not affected as per requirements)
+                spaceship.ax = force.fx / spaceship.mass;
+                spaceship.ay = force.fy / spaceship.mass;
+
+                // Update spaceship
+                spaceship.update(dt);
+            }
+
+            // Planet always updates (unaffected by collision)
             planet.ax = 0;
             planet.ay = 0;
-
-            // Update positions and velocities
-            spaceship.update(dt);
             planet.update(dt);
         }
 
+        // Update explosion animation
+        function updateExplosion(currentTime) {
+            if (!collisionOccurred) return;
+            
+            const elapsed = currentTime - explosionStartTime;
+            
+            if (elapsed < explosionDuration) {
+                // Fade in for first half, fade out for second half
+                const progress = elapsed / explosionDuration;
+                if (progress < 0.5) {
+                    explosionAlpha = progress * 2; // Fade in
+                } else {
+                    explosionAlpha = (1 - progress) * 2; // Fade out
+                }
+                explosionAlpha = Math.max(0, Math.min(1, explosionAlpha));
+            } else {
+                explosionAlpha = 0;
+            }
+        }
+
         // Rendering
-        function render() {
+        function render(currentTime) {
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             planet.draw();
             spaceship.draw(planet);
 
-            // Update current spaceship speed display
-            const currentSpeed = Math.sqrt(spaceship.vx * spaceship.vx + spaceship.vy * spaceship.vy);
-            document.getElementById('currentSpaceshipSpeed').textContent = Math.round(currentSpeed);
+            // Draw explosion if active and image is loaded
+            if (collisionOccurred && explosionAlpha > 0 && explosionImageLoaded && explosionImage.complete) {
+                ctx.save();
+                ctx.globalAlpha = explosionAlpha;
+                const explosionSize = 80; // Size of explosion
+                ctx.drawImage(
+                    explosionImage, 
+                    explosionX - explosionSize/2, 
+                    explosionY - explosionSize/2, 
+                    explosionSize, 
+                    explosionSize
+                );
+                ctx.restore();
+            } else if (collisionOccurred && explosionAlpha > 0 && !explosionImageLoaded) {
+                // Fallback: draw a simple explosion effect
+                ctx.save();
+                ctx.globalAlpha = explosionAlpha;
+                ctx.fillStyle = '#ff6600';
+                ctx.beginPath();
+                ctx.arc(explosionX, explosionY, 40 * explosionAlpha, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#ffaa00';
+                ctx.beginPath();
+                ctx.arc(explosionX, explosionY, 25 * explosionAlpha, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
 
-            // Update relative spaceship speed display
-            const relativeVx = spaceship.vx - planet.vx;
-            const relativeVy = spaceship.vy - planet.vy;
-            const relativeSpeed = Math.sqrt(relativeVx * relativeVx + relativeVy * relativeVy);
-            document.getElementById('relativeSpaceshipSpeed').textContent = Math.round(relativeSpeed);
+            // Update displays
+            if (spacecraftActive) {
+                // Update current spaceship speed display
+                const currentSpeed = Math.sqrt(spaceship.vx * spaceship.vx + spaceship.vy * spaceship.vy);
+                document.getElementById('currentSpaceshipSpeed').textContent = Math.round(currentSpeed);
 
-            // Update distance between spacecraft and planet display
-            const dx = spaceship.x - planet.x;
-            const dy = spaceship.y - planet.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            document.getElementById('spaceshipPlanetDistance').textContent = Math.round(distance);
+                // Update relative spaceship speed display
+                const relativeVx = spaceship.vx - planet.vx;
+                const relativeVy = spaceship.vy - planet.vy;
+                const relativeSpeed = Math.sqrt(relativeVx * relativeVx + relativeVy * relativeVy);
+                document.getElementById('relativeSpaceshipSpeed').textContent = Math.round(relativeSpeed);
+
+                // Update distance between spacecraft and planet display
+                const dx = spaceship.x - planet.x;
+                const dy = spaceship.y - planet.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                document.getElementById('spaceshipPlanetDistance').textContent = Math.round(distance);
+            } else {
+                // Show zeros when spacecraft is destroyed
+                document.getElementById('currentSpaceshipSpeed').textContent = '0';
+                document.getElementById('relativeSpaceshipSpeed').textContent = '0';
+                document.getElementById('spaceshipPlanetDistance').textContent = '---';
+            }
         }
 
         // Animation loop
@@ -486,13 +646,15 @@
                 updatePhysics(dt * timeScale);
             }
 
-            render();
+            updateExplosion(currentTime);
+            render(currentTime);
             requestAnimationFrame(animate);
         }
 
         // Controls
         document.getElementById('playPause').addEventListener('click', function() {
             isPlaying = !isPlaying;
+            console.log('Play button clicked, isPlaying:', isPlaying);
             this.textContent = isPlaying ? 'Pause' : 'Play';
             this.classList.toggle('active', isPlaying);
         });
@@ -502,6 +664,13 @@
             document.getElementById('playPause').textContent = 'Play';
             document.getElementById('playPause').classList.remove('active');
             timeDirection = 1;
+            
+            // Reset collision and explosion state
+            collisionOccurred = false;
+            spacecraftActive = true;
+            explosionAlpha = 0;
+            explosionStartTime = 0;
+            
             initializeObjects();
         });
 
@@ -537,7 +706,8 @@
             timeDirection = direction;
             updatePhysics(fixedTimeStep * timeScale);
             timeDirection = originalTimeDirection;
-            render();
+            updateExplosion(performance.now());
+            render(performance.now());
         }
 
         // Step buttons
@@ -551,7 +721,7 @@
 
         // Update spaceship parameters when sliders change
         function updateSpaceshipParameters() {
-            if (spaceship && planet) {
+            if (spaceship && planet && spacecraftActive) {
                 const spaceshipSpeed = parseInt(document.getElementById('spaceshipSpeed').value);
                 const spaceshipAngle = parseInt(document.getElementById('spaceshipAngle').value);
 
